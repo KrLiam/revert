@@ -2,6 +2,12 @@
 name = "revert"
 version = "0.1.0"
 edition = "2024"
+description = "An implementation of a linear history-based command pattern."
+license = "MIT"
+authors = ["KrLiam"]
+repository = "https://github.com/KrLiam/revert"
+keywords = ["command", "history", "undo", "redo"]
+homepage = "https://github.com/KrLiam/revert"
 
 [[example]]
 name = "demo"
