@@ -11,7 +11,7 @@ pub enum TextCommand {
 }
 
 impl Command<String> for TextCommand {
-    fn apply(&self, context: &mut String) {
+    fn execute(&self, context: &mut String) {
         match self {
             TextCommand::Insert(s) => context.push_str(s),
             TextCommand::Erase(s) => {
@@ -162,14 +162,14 @@ fn insert_text(
 
         match key {
             KeyCode::Space => {
-                history.apply(TextCommand::Insert(" ".to_string()), &mut content.0);
+                history.execute(TextCommand::Insert(" ".to_string()), &mut content.0);
             },
             _ => {
                 let s = format!("{:?}", key);
                 if let Some(char_part) = s.strip_prefix("Key") {
-                    history.apply(TextCommand::Insert(char_part.to_lowercase()), &mut content.0);
+                    history.execute(TextCommand::Insert(char_part.to_lowercase()), &mut content.0);
                 } else if let Some(digit_part) = s.strip_prefix("Digit") {
-                    history.apply(TextCommand::Insert(digit_part.to_string()), &mut content.0);
+                    history.execute(TextCommand::Insert(digit_part.to_string()), &mut content.0);
                 }
             }
         }
@@ -179,7 +179,7 @@ fn insert_text(
 fn erase_text(mut history: ResMut<EditorHistory>, mut content: ResMut<EditorContent>, input: Res<ButtonInput<KeyCode>>) {
     if input.just_pressed(KeyCode::Backspace) {
         if let Some(last_char) = content.0.chars().last() {
-            history.apply(TextCommand::Erase(last_char.to_string()), &mut content.0);
+            history.execute(TextCommand::Erase(last_char.to_string()), &mut content.0);
         }
     }
 }
@@ -443,13 +443,13 @@ mod tests {
         let mut state = String::from("Hello");
         let mut history = History::default();
 
-        history.apply(TextCommand::Insert(" World".to_string()), &mut state);
+        history.execute(TextCommand::Insert(" World".to_string()), &mut state);
         assert_eq!(state, "Hello World");
         
         history.undo(&mut state);
         assert_eq!(state, "Hello");
         
-        history.apply(TextCommand::Insert(" Dave".to_string()), &mut state);
+        history.execute(TextCommand::Insert(" Dave".to_string()), &mut state);
         assert_eq!(state, "Hello Dave");
         
         history.undo(&mut state);
