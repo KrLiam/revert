@@ -1,14 +1,52 @@
 use std::{fmt, marker::PhantomData};
 
-pub trait Command<State>: Clone {
+/// A command that can be executed on a state.
+pub trait Command<State> {
+    /// Executes the command on the given state.
     fn execute(&self, state: &mut State);
+
+    /// Reverts the command on the given state.
     fn revert(&self, state: &mut State);
+
+    /// Merges the command with another command.
+    ///
+    /// Returns `true` if the command was merged, `false` otherwise.
+    #[allow(unused)]
+    fn merge(&mut self, other: &Self) -> bool {
+        false
+    }
 }
 
-#[derive(Clone)]
+/// An action in a history stack. Can either be a command or an undo.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum HistoryAction<Command> {
     Undo(usize),
     Command(Command)
+}
+impl<Command> HistoryAction<Command> {
+    /// Tries to unwrap the action as an undo action.
+    pub fn as_undo(&self) -> Option<usize> {
+        match self {
+            HistoryAction::Undo(n) => Some(*n),
+            _=> None
+        }
+    }
+    
+    /// Tries to unwrap the action as a command.
+    pub fn as_command(&self) -> Option<&Command> {
+        match self {
+            HistoryAction::Command(c) => Some(c),
+            _=> None
+        }
+    }
+
+    /// Tries to mutably unwrap the action as a command.
+    pub fn as_command_mut(&mut self) -> Option<&mut Command> {
+        match self {
+            HistoryAction::Command(c) => Some(c),
+            _=> None
+        }
+    }
 }
 
 impl<T> fmt::Display for HistoryAction<T>
@@ -35,9 +73,10 @@ where
     }
 }
 
+/// A history stack.
 pub struct History<Command, State> {
     stack: Vec<HistoryAction<Command>>,
-    current: usize,
+    next: usize,
     phantom: PhantomData<State>,
 
     limit: usize,
@@ -52,10 +91,11 @@ impl<Command, State> Default for History<Command, State> {
 }
 
 impl<Cmd, State> History<Cmd, State> {
+    /// Creates a new history stack with the given limit.
     pub fn new(limit: usize) -> Self {
         History {
             stack: Vec::new(),
-            current: 0,
+            next: 0,
             limit,
             threshold_index: usize::MAX,
             threshold_span: 0,
@@ -63,6 +103,7 @@ impl<Cmd, State> History<Cmd, State> {
         }
     }
 
+    /// Returns the limit of the history stack.
     pub fn limit(&self) -> usize {
         self.limit
     }
@@ -70,70 +111,89 @@ impl<Cmd, State> History<Cmd, State> {
 
 impl<Cmd, State> History<Cmd, State>
 where Cmd: Command<State> {
-    pub fn current(&self) -> usize {
-        self.current
+    /// Returns the index of the current (last executed) action. Might be
+    /// `None` if no actions were executed yet.
+    pub fn current_idx(&self) -> Option<usize> {
+        self.next.checked_sub(1)
+    }
+    
+    /// Returns the index of the current (last executed) action.
+    pub fn next_idx(&self) -> usize {
+        self.next
     }
 
+    // Returns the number of actions currently in the history stack.
     pub fn len(&self) -> usize {
         self.stack.len()
     }
     
+    /// Returns whether the history stack is empty.
     pub fn is_empty(&self) -> bool {
         self.stack.is_empty()
     }
 
+    /// Returns a reference to the action at the given index.
     pub fn get(&self, index: usize) -> Option<&HistoryAction<Cmd>> {
         self.stack.get(index)
     }
-
+    
+    /// Returns a reference to the last executed action.
     pub fn get_next_undo(&self) -> Option<&HistoryAction<Cmd>> {
-        self.current.checked_sub(1).and_then(|i| self.stack.get(i))
+        self.next.checked_sub(1).and_then(|i| self.stack.get(i))
     }
 
+    /// Returns a reference to the next action that can be redone (the last undone action).
     pub fn get_next_redo(&self) -> Option<&HistoryAction<Cmd>> {
-        self.current.checked_add(1).and_then(|i| self.stack.get(i))
+        self.next.checked_add(1).and_then(|i| self.stack.get(i))
     }
 
+    /// Returns whether there is an action that can be undone.
     pub fn can_undo(&self) -> bool {
         self.get_next_undo().is_some()
     }
 
+    /// Returns whether there is an action that can be redone.
     pub fn can_redo(&self) -> bool {
         self.get_next_redo().is_some()
     }
 
+    /// Returns an iterator for the history stack.
     pub fn iter(&self) -> impl Iterator<Item = &HistoryAction<Cmd>> {
         self.stack.iter()
     }
 
+    /// Clears the history stack resets it to its initial state.
     pub fn clear(&mut self) {
         self.stack.clear();
-        self.current = 0;
+        self.next = 0;
         self.threshold_index = usize::MAX;
         self.threshold_span = 0;
     }
 
-    pub fn append(&mut self, command: Cmd) -> Option<&HistoryAction<Cmd>> {
-        let action = HistoryAction::Command(command);
+    /// Append a command to the history stack without executing it.
+    pub fn append(&mut self, command: Cmd) -> usize {
+        let last_command = self.stack.last_mut().and_then(|a| a.as_command_mut());
+        if let Some(last_action) = last_command {
+            if last_action.merge(&command) {
+                return self.stack.len() - 1;
+            }
+        }
 
-        self.stack.push(action);
-        self.current = self.stack.len();
+        self.stack.push(HistoryAction::Command(command));
+        self.next = self.stack.len();
 
         self.check_limit();
 
-        self.stack.last()
+        self.stack.len() - 1
     }
 
+    /// Append a command to the history stack and execute it.
     pub fn execute(&mut self, command: Cmd, state: &mut State) {
-        let action = HistoryAction::Command(command);
-
-        self.execute_action(&action, state, self.current);
-        self.stack.push(action);
-        self.current = self.stack.len();
-
-        self.check_limit();
+        command.execute(state);
+        self.append(command);
     }
 
+    /// Undo the last executed command.
     pub fn undo(&mut self, state: &mut State) {
         if let Some(HistoryAction::Undo(n)) = self.stack.last() {
             if *n >= self.limit {
@@ -141,11 +201,10 @@ where Cmd: Command<State> {
             }
         }
 
-        if self.current > 0 {
-            let undo_idx = self.current - 1;
-            let cmd_to_revert = self.stack[undo_idx].clone();
-            self.revert_action(&cmd_to_revert, state, undo_idx);
-            self.current -= 1;
+        if self.next > 0 {
+            let undo_idx = self.next - 1;
+            self.revert_action(undo_idx, state);
+            self.next -= 1;
 
             if let Some(HistoryAction::Undo(n)) = self.stack.last_mut() {
                 *n += 1;
@@ -163,12 +222,11 @@ where Cmd: Command<State> {
         }
     }
 
+    /// Redoes the last undone command.
     pub fn redo(&mut self, state: &mut State) {
-        if self.current < self.stack.len() {
-            let cmd = self.stack[self.current].clone();
-            let current = self.current;
-            self.execute_action(&cmd, state, current);
-            self.current += 1;
+        if self.next < self.stack.len() {
+            self.execute_action(self.next, state);
+            self.next += 1;
 
             let mut pop = false;
             if let Some(HistoryAction::Undo(n)) = self.stack.last_mut() {
@@ -183,43 +241,40 @@ where Cmd: Command<State> {
         }
     }
 
-    fn execute_action(&mut self, action: &HistoryAction<Cmd>, state: &mut State, current_index: usize) {
+    fn execute_action(&mut self, action_idx: usize, state: &mut State) {
+        let Some(action) = self.stack.get(action_idx) else { return };
+
         match action {
             HistoryAction::Command(command) => {
                 command.execute(state);
             }
             HistoryAction::Undo(n) => {
-                // Apply Undo(n) means we undo n commands starting from the one before this Undo command.
-                // The Undo command is at `current_index`.
-                // We need to revert commands at indices: current_index - 1, current_index - 2, ... current_index - n.
+                // We need to revert commands at indices: action_idx - 1, action_idx - 2, ... action_idx - n.
                 for i in 0..*n {
-                    if let Some(target_idx) = current_index.checked_sub(1 + i) {
-                        if let Some(command) = self.stack.get(target_idx).cloned() {
-                            self.revert_action(&command, state, target_idx);
-                        }
+                    if let Some(target_idx) = action_idx.checked_sub(1 + i) {
+                        self.revert_action(target_idx, state);
                     }
                 }
             }
         }
     }
 
-    fn revert_action(&mut self, action: &HistoryAction<Cmd>, state: &mut State, command_index: usize) {
+    fn revert_action(&mut self, action_idx: usize, state: &mut State) {
+        let Some(action) = self.stack.get(action_idx) else { return };
+
         match action {
             HistoryAction::Command(command) => {
                 command.revert(state);
             }
             HistoryAction::Undo(n) => {
                 // Reverting an Undo(n) means Redoing the commands it undid.
-                // The Undo command is at `self.current - 1`.
-                // It covers commands from `(self.current - 1) - n` to `(self.current - 1) - 1`.
+                // The Undo command is at `self.next - 1`.
+                // It covers commands from `(self.next - 1) - n` to `(self.next - 1) - 1`.
                 // We redo them in forward order.
-                let undo_cmd_index = command_index;
-                let start_index = undo_cmd_index.saturating_sub(*n);
+                let start_index = action_idx.saturating_sub(*n);
                 for i in 0..*n {
                     let target_index = start_index + i;
-                    if let Some(command) = self.stack.get(target_index).cloned() {
-                        self.execute_action(&command, state, target_index);
-                    }
+                    self.execute_action(target_index, state);
                 }
             }
         }
@@ -250,7 +305,7 @@ where Cmd: Command<State> {
         }
 
         self.stack.drain(0 .. count);
-        self.current = self.current.saturating_sub(count);
+        self.next = self.next.saturating_sub(count);
         
         self.threshold_index = usize::MAX;
         self.threshold_span = 0;

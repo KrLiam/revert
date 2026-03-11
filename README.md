@@ -7,7 +7,7 @@ An implementation of a linear history-based command pattern, inspired by the con
 
 - **Linear History**: Undo operations are commands that are pushed onto the stack, revoking history rather than discarding it. As a result, undo operations can also be undone.
 - **Maximum undo limit**: Provides a mechanism to only discard commands if they are too old to be undone.
-- **Command Pattern**: Extensible `Command` trait with `apply` and `revert` methods, allowing for arbitrary state modifications.
+- **Command Pattern**: Extensible `Command` trait with `execute` and `revert` methods, allowing for arbitrary state modifications.
 - **Generic States**: Commands can modify any mutable state type (a simple data structure or complex app state).
 - **Undo/Redo Operations**: Built-in methods to traverse back and forth in the command history.
 - **Introspection**: Inspect the history stack to visualize user actions (e.g., for a history log UI).
@@ -16,7 +16,7 @@ An implementation of a linear history-based command pattern, inspired by the con
 
 ### Define Your Commands
 
-Implement the `Command` trait for your command type. This trait defines how a command modifies your state (`apply`) and how to reverse that modification (`revert`).
+Implement the `Command` trait for your command type. This trait defines how a command modifies your state (`execute`) and how to reverse that modification (`revert`).
 
 ```rust
 use revert::{Command, History};
@@ -28,7 +28,7 @@ pub enum TextCommand {
 }
 
 impl Command<String> for TextCommand {
-    fn apply(&self, text: &mut String) {
+    fn execute(&self, text: &mut String) {
         match self {
             TextCommand::Insert(s) => text.push_str(s),
             TextCommand::Erase(s) => {
@@ -61,16 +61,16 @@ fn main() {
     let mut state = String::from("Hello");
     let mut history = History::default();
 
-    // 1. Apply a command
-    history.apply(TextCommand::Insert(" World".to_string()), &mut state);
+    // 1. execute a command
+    history.execute(TextCommand::Insert(" World".to_string()), &mut state);
     assert_eq!(state, "Hello World");
 
     // 2. Undo
     history.undo(&mut state);
     assert_eq!(state, "Hello");
 
-    // 3. Apply another command
-    history.apply(TextCommand::Insert(" Bob".to_string()), &mut state);
+    // 3. execute another command
+    history.execute(TextCommand::Insert(" Bob".to_string()), &mut state);
     assert_eq!(state, "Hello Bob");
 
     // All previous states are accessible by undoing history.

@@ -32,6 +32,25 @@ impl Command<String> for TextCommand {
             }
         }
     }
+    
+    fn merge(&mut self, other: &Self) -> bool {
+        match (self, other) {
+            (TextCommand::Insert(s1), TextCommand::Insert(s2)) => {
+                if s1.chars().all(|c| c.is_whitespace()) == s2.chars().all(|c| c.is_whitespace()) {
+                    *s1 += s2;
+                    true
+                }
+                else {
+                    false
+                }
+            }
+            (TextCommand::Erase(s1), TextCommand::Erase(s2)) => {
+                s1.insert_str(0, s2);
+                true
+            }
+            _ => false
+        }
+    }
 }
 
 impl fmt::Display for TextCommand {
@@ -194,9 +213,9 @@ fn pressed_undo(
         && input.just_pressed(KeyCode::KeyZ)
     {
         if input.pressed(KeyCode::Tab) {
-            let current = history.current();
+            let next = history.next_idx();
             let mut target_idx = None;
-            for i in (0..current).rev() {
+            for i in (0..next).rev() {
                 if let Some(HistoryAction::Undo(_)) = history.get(i) {
                     target_idx = Some(i);
                     break;
@@ -204,7 +223,7 @@ fn pressed_undo(
             }
 
             if let Some(idx) = target_idx {
-                let count = current - idx;
+                let count = next - idx;
                 if count <= history.limit() {
                     for _ in 0..count {
                         history.undo(&mut content.0);
@@ -248,11 +267,11 @@ fn update_history_text(
     if history.is_changed() {
         let mut text = "History\n".to_owned();
         for i in (0..history.len()).rev() {
-            let prefix = if i + 1 == history.current() { "> " } else { "  " };
+            let prefix = if i + 1 == history.next_idx() { "> " } else { "  " };
             let Some(action) = history.get(i) else { continue; };
             text.push_str(&format!("{} {}. {}\n", prefix, i, action));
         }
-        if history.current() == 0 {
+        if history.next_idx() == 0 {
             text.push_str("> \n");
         }
         for mut t in &mut query {
@@ -306,12 +325,7 @@ fn update_graph_layout(
     let spacing_x = 30.0;
     let spacing_y = 30.0;
 
-    let mut current_idx = if history.current() > 0 {
-        Some(history.current() - 1)
-    } else {
-        None
-    };
-
+    let mut current_idx = history.current_idx();
     if let Some(mut idx) = current_idx {
         while let Some(HistoryAction::Undo(n)) = history.get(idx) {
             if idx < n + 1 {
