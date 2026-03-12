@@ -73,7 +73,7 @@ where
     }
 }
 
-/// A history stack.
+/// A command history stack.
 pub struct History<Command, State> {
     stack: Vec<HistoryAction<Command>>,
     next: usize,

@@ -1,7 +1,7 @@
 use bevy::{prelude::*, text::FontSmoothing};
 use std::fmt;
 
-use revert::history::{Command, History, HistoryAction};
+use revert::{Command, History, HistoryAction};
 
 
 #[derive(Debug, Clone)]
