@@ -1,6 +1,6 @@
 [package]
 name = "revert"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "An implementation of a linear history-based command pattern."
 license = "MIT"
